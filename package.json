@@ -1,6 +1,6 @@
 {
   "name": "@mhingston5/agent-workflows",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Standalone, repo-agnostic declarative DAG workflow engine for orchestrating agent workflows",
   "type": "module",
   "main": "./dist/index.js",
