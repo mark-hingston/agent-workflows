@@ -60,7 +60,7 @@ describe("WorkflowEngine", () => {
       ...makeBase(),
       nodes: [
         { id: "fail", deterministic: false, depends_on: [], trigger_rule: "all_succeeded", max_retries: 0, exec: { command: "exit 1" }, on_failure: "recover", output: { bind: "fail.out" } },
-        { id: "recover", deterministic: true, depends_on: [], trigger_rule: "all_succeeded", max_retries: 0, exec: { command: "echo recovered" }, output: { bind: "recover.out" } },
+        { id: "recover", deterministic: true, depends_on: ["fail"], trigger_rule: "always", max_retries: 0, exec: { command: "echo recovered" }, output: { bind: "recover.out" } },
       ],
     };
 
@@ -68,6 +68,7 @@ describe("WorkflowEngine", () => {
     assert.strictEqual(result.success, true);
     assert.ok(result.executedNodes.includes("recover"));
   });
+
   it("fails when on_failure target is missing", async () => {
     const runner = new InMemoryRunner();
     runner.register("fail", async () => ({ success: false, error: "boom" }));
@@ -86,7 +87,6 @@ describe("WorkflowEngine", () => {
     assert.strictEqual(result.failedNode, "fail");
     assert.ok(result.error?.includes("not found"));
   });
-
 
   it("times out a long-running node", async () => {
     const runner = new InMemoryRunner();
@@ -294,7 +294,6 @@ describe("WorkflowEngine", () => {
     assert.strictEqual(receivedInput, "hello");
   });
 
-
   it("throws on unsupported when expression", async () => {
     const runner = new InMemoryRunner();
     const engine = new WorkflowEngine(runner);
@@ -419,18 +418,22 @@ describe("WorkflowEngine", () => {
     assert.deepStrictEqual(result.executedNodes, ["a", "b"]);
   });
 
-  it("executes independent nodes in parallel", async () => {
+  it("executes independent nodes concurrently (with real time overlap)", async () => {
     const runner = new InMemoryRunner();
-    let startTime = 0;
-    let endTime = 0;
+    const startTimes: Record<string, number> = {};
+    const endTimes: Record<string, number> = {};
+
     runner.register("a", async () => {
-      startTime = Date.now();
+      startTimes["a"] = Date.now();
       await new Promise((r) => setTimeout(r, 100));
-      endTime = Date.now();
+      endTimes["a"] = Date.now();
       return { success: true, output: "a" };
     });
+
     runner.register("b", async () => {
+      startTimes["b"] = Date.now();
       await new Promise((r) => setTimeout(r, 100));
+      endTimes["b"] = Date.now();
       return { success: true, output: "b" };
     });
 
@@ -447,6 +450,14 @@ describe("WorkflowEngine", () => {
     const result = await engine.execute(workflow, {});
     assert.strictEqual(result.success, true);
     assert.deepStrictEqual(result.executedNodes, ["a", "b"]);
+
+    // If they ran truly concurrently, the later of the two start times should be before the earlier of the two end times.
+    const latestStart = Math.max(startTimes["a"], startTimes["b"]);
+    const earliestEnd = Math.min(endTimes["a"], endTimes["b"]);
+    assert.ok(
+      latestStart < earliestEnd,
+      `Nodes did not overlap: latestStart=${latestStart}, earliestEnd=${earliestEnd}`
+    );
   });
 
   it("evaluates when with && operator", async () => {
@@ -560,16 +571,26 @@ describe("WorkflowEngine", () => {
 
   it("handles uses node for sub-workflows", async () => {
     const runner = new InMemoryRunner();
-    runner.setSubWorkflowLoader(async (path) => [
-      { id: "sub-a", deterministic: true, depends_on: [], trigger_rule: "all_succeeded", max_retries: 0, exec: { command: "echo sub-a" } },
-    ]);
+    const subWorkflow: WorkflowDefinition = {
+      name: "sub",
+      require_deterministic: false,
+      on: { invoke: { args: [] } },
+      nodes: [
+        { id: "sub-a", deterministic: true, depends_on: [], trigger_rule: "all_succeeded", max_retries: 0, exec: { command: "echo sub-a" }, output: { bind: "sub.out" } },
+      ],
+    };
 
-    const engine = new WorkflowEngine(runner);
+    const loader = async (path: string) => {
+      if (path === "./sub-workflow.yaml") return subWorkflow;
+      throw new Error("Not found");
+    };
+
+    const engine = new WorkflowEngine(runner, loader);
 
     const workflow: WorkflowDefinition = {
       ...makeBase(),
       nodes: [
-        { id: "call", deterministic: true, depends_on: [], trigger_rule: "all_succeeded", max_retries: 0, uses: { workflow: "./sub-workflow.yaml" } },
+        { id: "call", deterministic: true, depends_on: [], trigger_rule: "all_succeeded", max_retries: 0, uses: { workflow: "./sub-workflow.yaml" }, output: { bind: "call.out" } },
       ],
     };
 
@@ -667,5 +688,26 @@ describe("WorkflowEngine", () => {
     await assert.rejects(async () => {
       await engine.execute(workflow, {});
     }, /Unsupported expression/);
+  });
+
+  it("on_failure handler runs even with normal trigger_rules present", async () => {
+    const runner = new InMemoryRunner();
+    runner.register("fail", async () => ({ success: false, error: "boom" }));
+    runner.register("recover", async () => ({ success: true, output: "recovered" }));
+
+    const engine = new WorkflowEngine(runner);
+
+    const workflow: WorkflowDefinition = {
+      ...makeBase(),
+      nodes: [
+        { id: "fail", deterministic: false, depends_on: [], trigger_rule: "all_succeeded", max_retries: 0, exec: { command: "exit 1" }, on_failure: "recover" },
+        { id: "recover", deterministic: true, depends_on: [], trigger_rule: "all_succeeded", max_retries: 0, exec: { command: "echo recovered" } },
+      ],
+    };
+
+    const result = await engine.execute(workflow, {});
+    assert.strictEqual(result.success, true);
+    assert.ok(result.executedNodes.includes("recover"));
+    assert.strictEqual(result.finalState["recover.output"], "recovered");
   });
 });
