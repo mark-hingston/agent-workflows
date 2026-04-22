@@ -1,0 +1,64 @@
+name: test-and-deploy
+on:
+  invoke:
+    args:
+      - name: branch
+        type: string
+        required: true
+      - name: skip_tests
+        type: boolean
+        required: false
+        default: false
+
+nodes:
+  - id: install
+    deterministic: true
+    exec:
+      command: "npm ci"
+    output:
+      bind: install.done
+
+  - id: lint
+    deterministic: true
+    depends_on: [install]
+    trigger_rule: all_succeeded
+    exec:
+      command: "npm run lint"
+    output:
+      bind: lint.passed
+
+  - id: test
+    deterministic: false
+    depends_on: [install]
+    trigger_rule: all_succeeded
+    when: "$args.skip_tests"
+    exec:
+      command: "npm test"
+    max_retries: 2
+    timeout_seconds: 120
+    on_failure: notify-test-failure
+    output:
+      bind: test.passed
+
+  - id: build
+    deterministic: true
+    depends_on: [lint, test]
+    trigger_rule: all_succeeded
+    exec:
+      command: "npm run build"
+    output:
+      bind: build.done
+
+  - id: deploy
+    deterministic: false
+    depends_on: [build]
+    trigger_rule: all_succeeded
+    exec:
+      command: "npm run deploy"
+    output:
+      bind: deploy.done
+
+  - id: notify-test-failure
+    deterministic: true
+    exec:
+      command: "echo 'Tests failed after retries'"

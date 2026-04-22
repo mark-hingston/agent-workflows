@@ -1,0 +1,38 @@
+{
+  "name": "@mhingston5/agent-workflows",
+  "version": "0.1.0",
+  "description": "Standalone, repo-agnostic declarative DAG workflow engine for orchestrating agent workflows",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "workflow-validate": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test dist/**/*.test.js",
+    "test:coverage": "c8 --reporter=text --reporter=lcov --include='dist/**/*.js' --exclude='dist/**/*.test.js' --exclude='dist/cli.js' --exclude='dist/index.js' node --test dist/**/*.test.js",
+    "lint": "tsc --noEmit",
+    "validate": "node ./dist/cli.js"
+  },
+  "keywords": ["workflow", "dag", "agent", "orchestration"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.0.0",
+    "c8": "^10.0.0",
+    "typescript": "^5.8.0",
+    "zod": "^3.24.0"
+  }
+}

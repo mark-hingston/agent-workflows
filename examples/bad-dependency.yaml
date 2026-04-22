@@ -1,0 +1,21 @@
+name: bad-dep
+on:
+  invoke:
+    args: []
+
+nodes:
+  - id: start
+    deterministic: true
+    depends_on: []
+    trigger_rule: all_succeeded
+    max_retries: 0
+    exec:
+      command: "echo start"
+
+  - id: bad
+    deterministic: true
+    depends_on: [missing-node]
+    trigger_rule: all_succeeded
+    max_retries: 0
+    exec:
+      command: "echo bad"

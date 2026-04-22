@@ -1,0 +1,29 @@
+name: bad-cycle
+on:
+  invoke:
+    args: []
+
+nodes:
+  - id: a
+    deterministic: true
+    depends_on: [c]
+    trigger_rule: all_succeeded
+    max_retries: 0
+    exec:
+      command: "echo a"
+
+  - id: b
+    deterministic: true
+    depends_on: [a]
+    trigger_rule: all_succeeded
+    max_retries: 0
+    exec:
+      command: "echo b"
+
+  - id: c
+    deterministic: true
+    depends_on: [b]
+    trigger_rule: all_succeeded
+    max_retries: 0
+    exec:
+      command: "echo c"
